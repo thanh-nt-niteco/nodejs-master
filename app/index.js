@@ -90,6 +90,6 @@ var unifiedServer = function(req, res) {
 
 // Define a request router
 const router = {
-    ping: handlers.sample,
+    ping: handlers.ping,
     users: handlers.users,
 };

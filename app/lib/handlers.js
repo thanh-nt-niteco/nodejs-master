@@ -72,17 +72,23 @@ handlers._users.post = function(data, callback) {
 // Users - get
 // Required data: phone
 // Optional data: none
-// @TODO Only let an authenticated user access their object. Don't let them access anyone elses
 handlers._users.get = function(data, callback) {
     const phone = typeof(data.queryStringObject.phone) == 'string' && data.queryStringObject.phone.length == 10 ? data.queryStringObject.phone.trim() : false;
     if(phone) {
-        _data.read('users', phone, function(err, data){
-            if(!err && data) {
-                // Remove the hashed password from the user before returning it to the request
-                delete data.hashPassword;
-                callback(200, data);
-            } else {
-                callback(404);
+        var token = typeof(data.headers.token) == 'string' ? data.headers.token : false;
+        handlers._tokens.verifyToken(token, phone, function(tokenIsValid){
+            if(tokenIsValid){
+                _data.read('users', phone, function(err, data){
+                    if(!err && data) {
+                        // Remove the hashed password from the user before returning it to the request
+                        delete data.hashPassword;
+                        callback(200, data);
+                    } else {
+                        callback(404);
+                    }
+                });
+            }else{
+                callback(403, {Error: 'Missing required token in header, or token is invalid'})
             }
         });
     } else {
@@ -93,7 +99,6 @@ handlers._users.get = function(data, callback) {
 // Users - put
 // Required data: phone
 // Optional data: firstName, lastName, password ( at least one must be specified)
-// @TODO Only let an authenticated user update their own object. Don't let them update anyone elses
 handlers._users.put = function(data, callback) {
     // Check for the required field
     const phone = typeof(data.payload.phone) == 'string' && data.payload.phone.length == 10 ? data.payload.phone.trim() : false;
@@ -103,34 +108,41 @@ handlers._users.put = function(data, callback) {
     const password = typeof(data.payload.password) == 'string' && data.payload.password.length > 0 ? data.payload.password.trim() : false;
 
     if(phone) {
-        if(firstName || lastName || password) {
-            _data.read('users', phone, function(err, userData){
-                if(!err && userData) {
-                    if(firstName) {
-                        userData.firstName = firstName;
-                    }
-                    if(lastName) {
-                        userData.lastName = lastName;
-                    }
-                    if(password) {
-                        userData.hashedPassword = helpers.hash(password);
-                    }
-                    
-                    _data.update('users', phone, userData, function(err) {
-                        if(!err) {
-                            callback(200);
+        var token = typeof(data.headers.token) == 'string' ? data.headers.token : false;
+        handlers._tokens.verifyToken(token, phone, function(tokenIsValid){
+            if(tokenIsValid){
+                if(firstName || lastName || password) {
+                    _data.read('users', phone, function(err, userData){
+                        if(!err && userData) {
+                            if(firstName) {
+                                userData.firstName = firstName;
+                            }
+                            if(lastName) {
+                                userData.lastName = lastName;
+                            }
+                            if(password) {
+                                userData.hashedPassword = helpers.hash(password);
+                            }
+                            
+                            _data.update('users', phone, userData, function(err) {
+                                if(!err) {
+                                    callback(200);
+                                } else {
+                                    console.log(err);
+                                    callback(500, {'Error': 'Could not update the user'});
+                                }
+                            });
                         } else {
-                            console.log(err);
-                            callback(500, {'Error': 'Could not update the user'});
+                            callback(400, {Error: 'The specified user does not exist'});
                         }
                     });
                 } else {
-                    callback(400, {Error: 'The specified user does not exist'});
+                    callback(400, {Error: 'Mising fields to update'});
                 }
-            });
-        } else {
-            callback(400, {Error: 'Mising fields to update'});
-        }
+            }else{
+                callback(403, {Error: 'Missing required token in header, or token is invalid'})
+            }
+        });
     } else {
         callback(400, {Error: 'Missing required field'});
     }
@@ -139,22 +151,28 @@ handlers._users.put = function(data, callback) {
 
 // Users - delete
 // Required field: phone
-// @TODO Only let an authenticated user delete their object. Don't let them delete anyone elses
 // @TODO Cleanup (delete) any other data fields associated with this user
 handlers._users.delete = function(data, callback) {
     const phone = typeof(data.queryStringObject.phone) == 'string' && data.queryStringObject.phone.length == 10 ? data.queryStringObject.phone.trim() : false;
     if(phone) {
-        _data.read('users', phone, function(err, data){
-            if(!err && data) {
-                _data.delete('users', phone, function(err){
-                    if(!err) {
-                        callback(200);
+        var token = typeof(data.headers.token) == 'string' ? data.headers.token : false;
+        handlers._tokens.verifyToken(token, phone, function(tokenIsValid){
+            if(tokenIsValid){
+                _data.read('users', phone, function(err, data){
+                    if(!err && data) {
+                        _data.delete('users', phone, function(err){
+                            if(!err) {
+                                callback(200);
+                            } else {
+                                callback(500, {Error: 'Could not delete the specified user'});
+                            }
+                        });
                     } else {
-                        callback(500, {Error: 'Could not delete the specified user'});
+                        callback(400, {Error: 'Could not find the specified user'});
                     }
                 });
-            } else {
-                callback(400, {Error: 'Could not find the specified user'});
+            }else{
+                callback(403, {Error: 'Missing required token in header, or token is invalid'})
             }
         });
     } else {
@@ -216,13 +234,86 @@ handlers._tokens.post = function(data, callback) {
 }
 
 // Tokens - get
-handlers._tokens.get = function(data, callback) {}
+//
+handlers._tokens.get = function(data, callback) {
+    const id = typeof(data.queryStringObject.id) == 'string' && data.queryStringObject.id.length == 20 ? data.queryStringObject.id.trim() : false;
+    if(id) {
+        _data.read('tokens', id, function(err, data){
+            if(!err && data) {
+                callback(200, data);
+            } else {
+                callback(404);
+            }
+        });
+    } else {
+        callback(400, {Error: 'Missing required field'});
+    }
+}
 
 // Tokens - put
-handlers._tokens.put = function(data, callback) {}
+handlers._tokens.put = function(data, callback) {
+    const id = typeof(data.payload.id) == 'string' && data.payload.id.length == 20 ? data.payload.id.trim() : false;
+    const extend = typeof(data.payload.extend) == 'boolean' && data.payload.extend;
+    if(id && extend) {
+        _data.read('tokens', id, function(err, data){
+            if(!err && data) {
+                // Check to the make sure the token isn't already expired
+                if(data.expires > Date.now()){
+                    data.expires = Date.now() + 1000*60*60;
+                    _data.update('tokens', id, data, function(err){
+                        if(!err){
+                            callback(200);
+                        }else {
+                            callback(500, {Error: 'Could not update the token\'s expiration'})
+                        }
+                    });
+                } else {
+                    callback(400, {Error: 'The token has already expired'});
+                }
+            } else {
+                callback(400, {Error: 'Specified token does not exist'});
+            }
+        });
+    } else {
+        callback(400, {Error: 'Missing required field(s) or field(s) are invalid'});
+    }
+}
 
 // Tokens - delete
-handlers._tokens.delete = function(data, callback) {}
+handlers._tokens.delete = function(data, callback) {
+    const id = typeof(data.queryStringObject.id) == 'string' && data.queryStringObject.id.length == 20 ? data.queryStringObject.id.trim() : false;
+    if(id) {
+        _data.read('tokens', id, function(err, data){
+            if(!err && data) {
+                _data.delete('tokens', id, function(err){
+                    if(!err) {
+                        callback(200);
+                    } else {
+                        callback(500, {Error: 'Could not delete the specified token'});
+                    }
+                });
+            } else {
+                callback(400, {Error: 'Could not find the specified token'});
+            }
+        });
+    } else {
+        callback(400, {Error: 'Missing required field'});
+    }
+}
+
+// Verify if a given id is currenty valid for a given user
+handlers._tokens.verifyToken = function(id, phone, callback) {
+    // Lookup the token
+    _data.read('tokens', id, function(err, data){
+        if(!err){
+            if(data.phone == phone && data.expires > Date.now())
+                callback(true);
+            else callback(false);
+        }else {
+            callback(false);
+        }
+    });
+}
 
 handlers.ping = function(data, callback) {
     callback(200);

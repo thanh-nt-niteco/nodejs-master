@@ -14,7 +14,7 @@ const server = {};
 
 // Instantiate the HTTP server
 server.httpServer = http.createServer((req, res) => {
-    //server.unifiedServer(req, res);
+    server.unifiedServer(req, res);
 });
 
 // Instantiate the HTTPS server
